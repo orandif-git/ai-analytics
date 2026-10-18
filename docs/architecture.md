@@ -19,6 +19,21 @@ Every tenant-owned table has `tenant_id` and PostgreSQL row-level security (`FOR
 ## Secrets
 Camera passwords are Fernet-encrypted at rest (`AIA_SECRET_KEY`) and never returned by the API. User passwords use argon2.
 
+## Edge devices and events (phase 2)
+- Edge devices are **platform level** (superadmin creates them; the token is shown once and only its SHA-256 is stored). The one Mac mini serves every tenant, and `POST /edge/events` derives each event's tenant from its camera.
+- `GET /edge/config` returns enabled cameras of active tenants with full RTSP URLs including decrypted credentials, so a device token is as sensitive as a camera password. Revoke with `DELETE /admin/edge-devices/{id}`.
+- Events carry a `client_id`; the API ignores duplicates, so the agent can safely retry its outbox.
+- Snapshots are JPEGs on the VPS under `AIA_MEDIA_DIR` (Docker volume `media`). An hourly job deletes events and snapshots older than each tenant's `retention_days`.
+- Camera `analytics` (JSONB) holds normalised lines and zones; `PUT /cameras/{id}/analytics` sets them (the canvas editor arrives in phase 3).
+- Visitor count = `line_cross` events with `direction=in`; `GET /analytics/visitors` buckets them by hour or day. `GET /analytics/heatmap` sums the per-minute grids.
+
+## Phase 2 limits (known)
+- The YOLO detector and ByteTrack are NOT covered by automated tests and were not run in development (no torch in the dev sandbox, and the Mac mini was not available). Run `aia-edge probe` and a short supervised `aia-edge run` on the Mac mini before trusting counts, and benchmark cameras per Mac mini there.
+- One YOLO model instance per camera (tracker state is per instance), which costs memory; a shared batched model is a later optimisation.
+- Number-plate reading (India) is phase 4 and will run only on vehicle crops.
+- Zones (dwell, restricted areas) are stored but not evaluated yet; only lines, counts and the heatmap are.
+- The agent has no auto-update or launchd service file yet.
+
 ## Phase 1 limits (known)
 - JWTs are valid until expiry (60 min) even if a tenant is deactivated afterwards; only new logins are blocked.
 - No refresh tokens, rate limiting or password reset yet (phase 5).

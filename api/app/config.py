@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     # Fernet key (urlsafe base64, 32 bytes) used to encrypt camera passwords at rest.
     secret_key: str
     default_retention_days: int = 7
+    media_dir: str = "./media"
+    purge_interval_seconds: int = 3600
     bootstrap_superadmin_email: str | None = None
     bootstrap_superadmin_password: str | None = None
 

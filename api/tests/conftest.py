@@ -11,6 +11,7 @@ APP_URL = make_url(ADMIN_URL).set(username="aia_app", password="aia_app", databa
 os.environ["AIA_DATABASE_URL"] = APP_URL.render_as_string(hide_password=False)
 os.environ["AIA_JWT_SECRET"] = "test-secret-test-secret-test-secret-1234"
 os.environ["AIA_SECRET_KEY"] = Fernet.generate_key().decode()
+os.environ["AIA_MEDIA_DIR"] = __import__("tempfile").mkdtemp(prefix="aia-media-")
 os.environ["AIA_BOOTSTRAP_SUPERADMIN_EMAIL"] = "root@example.com"
 os.environ["AIA_BOOTSTRAP_SUPERADMIN_PASSWORD"] = "root-password-123"
 

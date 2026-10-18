@@ -5,7 +5,7 @@ CCTV AI analytics for any RTSP/ONVIF camera. AI runs on a local Mac mini; the cu
 | Folder | What |
 |---|---|
 | `api/` | FastAPI + PostgreSQL (row-level security per tenant). Phase 1 done. |
-| `edge/` | Mac mini agent (phase 2). |
+| `edge/` | Mac mini agent: RTSP, detection, counting, heatmap, outbox (phase 2). |
 | `web/` | Customer portal and superadmin panel (phase 3). |
 | `deploy/` | Docker Compose (Caddy, API, Postgres) for the VPS. |
 | `docs/` | Architecture and decisions. |

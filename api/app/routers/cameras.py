@@ -1,4 +1,5 @@
-from typing import Literal
+import json
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 Vendor = Literal["dahua", "hikvision", "axis", "uniview", "generic"]
 # Never return password_enc.
-PUBLIC_COLS = "id, site_id, name, vendor, host, port, channel, stream, path, username, enabled, created_at"
+PUBLIC_COLS = "id, site_id, name, vendor, host, port, channel, stream, path, username, enabled, analytics, created_at"
 
 
 class CameraIn(BaseModel):
@@ -62,3 +63,39 @@ def delete_camera(camera_id: UUID, p: Principal = Depends(require_tenant_admin),
     if s.execute(text("DELETE FROM cameras WHERE id = :i RETURNING id"), {"i": camera_id}).first() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+Point = Annotated[list[float], Field(min_length=2, max_length=2)]
+
+
+class Line(BaseModel):
+    id: str = Field(min_length=1, max_length=50)
+    p1: Point
+    p2: Point
+    # Which side counts as "in": the side the left-hand normal of p1->p2 points to when "left".
+    in_side: Literal["left", "right"] = "left"
+
+
+class Zone(BaseModel):
+    id: str = Field(min_length=1, max_length=50)
+    polygon: list[Point] = Field(min_length=3, max_length=50)
+
+
+class Analytics(BaseModel):
+    """Coordinates are normalised 0-1 (x right, y down) so they survive resolution changes."""
+    lines: list[Line] = Field(default=[], max_length=20)
+    zones: list[Zone] = Field(default=[], max_length=20)
+
+
+@router.put("/{camera_id}/analytics")
+def set_analytics(camera_id: UUID, body: Analytics, p: Principal = Depends(require_tenant_admin), s: Session = Depends(tenant_db)):
+    for pt in [pt for l in body.lines for pt in (l.p1, l.p2)] + [pt for z in body.zones for pt in z.polygon]:
+        if not all(0 <= v <= 1 for v in pt):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Coordinates must be between 0 and 1")
+    row = s.execute(
+        text(f"UPDATE cameras SET analytics = CAST(:a AS jsonb) WHERE id = :i RETURNING {PUBLIC_COLS}"),
+        {"a": json.dumps(body.model_dump()), "i": camera_id},
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
+    return dict(row)

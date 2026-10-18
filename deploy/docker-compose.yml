@@ -24,8 +24,11 @@ services:
       AIA_DATABASE_URL: postgresql+psycopg://aia_app:${AIA_DB_PASSWORD}@postgres:5432/aia
       AIA_JWT_SECRET: ${AIA_JWT_SECRET}
       AIA_SECRET_KEY: ${AIA_SECRET_KEY}
+      AIA_MEDIA_DIR: /data/media
       AIA_BOOTSTRAP_SUPERADMIN_EMAIL: ${AIA_BOOTSTRAP_SUPERADMIN_EMAIL:-}
       AIA_BOOTSTRAP_SUPERADMIN_PASSWORD: ${AIA_BOOTSTRAP_SUPERADMIN_PASSWORD:-}
+    volumes:
+      - media:/data/media
 
   caddy:
     image: caddy:2
@@ -41,5 +44,6 @@ services:
       - caddy_data:/data
 
 volumes:
+  media:
   pgdata:
   caddy_data:
