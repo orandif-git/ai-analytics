@@ -1,0 +1,9 @@
+{$AIA_DOMAIN} {
+	encode gzip
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+	# The web portal (phase 3) will be served here.
+	respond / "AI Analytics" 200
+}

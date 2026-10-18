@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      AIA_DB_PASSWORD: ${AIA_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-app-role.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+    # Not published: reachable only from the compose network.
+
+  api:
+    build: ../api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIA_DATABASE_URL: postgresql+psycopg://aia_app:${AIA_DB_PASSWORD}@postgres:5432/aia
+      AIA_JWT_SECRET: ${AIA_JWT_SECRET}
+      AIA_SECRET_KEY: ${AIA_SECRET_KEY}
+      AIA_BOOTSTRAP_SUPERADMIN_EMAIL: ${AIA_BOOTSTRAP_SUPERADMIN_EMAIL:-}
+      AIA_BOOTSTRAP_SUPERADMIN_PASSWORD: ${AIA_BOOTSTRAP_SUPERADMIN_PASSWORD:-}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AIA_DOMAIN: ${AIA_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  pgdata:
+  caddy_data:
