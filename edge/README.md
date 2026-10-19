@@ -31,6 +31,10 @@ The agent fetches cameras (and their lines/zones) from `/edge/config` every 60 s
 | `line_cross` | a tracked object crossed a counting line: `data.direction` is `in` or `out` |
 | `count` | per-minute maximum simultaneous objects per label |
 | `heatmap` | per-minute sparse grid of where people stood (feet position) |
+| `zone_enter` / `zone_exit` | a tracked object entered or left a drawn zone |
+| `zone_dwell` | an object stayed in a zone longer than the zone's `dwell_s` (once per visit, with a snapshot) |
+
+The agent also answers portal "refresh picture" requests (it polls every 3 s, grabs one frame and uploads it), because only this machine can reach the cameras.
 
 Line geometry uses normalised 0-1 coordinates. `in_side` names the side of the line people are on **after** entering, seen on screen relative to the p1 -> p2 direction.
 

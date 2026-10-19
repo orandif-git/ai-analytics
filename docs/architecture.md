@@ -27,6 +27,24 @@ Camera passwords are Fernet-encrypted at rest (`AIA_SECRET_KEY`) and never retur
 - Camera `analytics` (JSONB) holds normalised lines and zones; `PUT /cameras/{id}/analytics` sets them (the canvas editor arrives in phase 3).
 - Visitor count = `line_cross` events with `direction=in`; `GET /analytics/visitors` buckets them by hour or day. `GET /analytics/heatmap` sums the per-minute grids.
 
+## Portal, rules and webhooks (phase 3)
+- **Portal** (`web/`): React app served by Caddy from the same origin as the API (`/api/*` is proxied, prefix stripped). Roles: superadmin (customers, retention, edge devices), owner/admin (everything for their company), viewer (read only).
+- **Camera preview**: the VPS cannot reach cameras (port-forward is locked to the office IP), so the portal creates a `snapshot_request`; the edge agent polls `/edge/requests` every 3 s, grabs one frame and uploads it. The picture is what customers draw on.
+- **Drawing**: lines and zones are saved as normalised 0-1 coordinates in `cameras.analytics`; the edge agent re-reads them every 60 s. A line's `in_side` is the side of p1 -> p2 (as seen on screen) that counts as "in"; the portal draws an IN marker on that side, and both sides are unit-tested to agree.
+- **Zone events** (edge): `zone_enter`, `zone_exit` and `zone_dwell` (once per visit after the zone's `dwell_s`).
+- **Rules**: match an event kind (+ optional label, line/zone id, direction) on one camera or all, with a per-(rule, camera) cooldown claimed atomically in SQL. A match queues a webhook delivery.
+- **Webhooks**: one URL per tenant, signed `X-AIA-Signature: sha256=HMAC(secret, timestamp + "." + body)`, retried with backoff (30 s doubling, max 1 h, 8 attempts). The signing secret is shown once and stored encrypted.
+- **SSRF guard**: a tenant chooses the URL, so every delivery requires https, resolves the host, refuses anything that is not a public address (loopback, private, link-local, CGNAT, IPv4-mapped IPv6, ...), connects to the resolved IP (TLS still verifies the real host name) and does not follow redirects.
+- **Startup checks**: the API refuses to start with a JWT secret under 32 characters or an invalid encryption key.
+- Browser tests: `web/e2e` drives the whole flow against a real API and Postgres.
+
+## Phase 3 limits (known)
+- Login tokens last 60 minutes with no refresh token, and a suspended tenant's existing tokens stay valid until they expire. No login rate limiting, password reset or 2FA yet (phase 5).
+- Rules react to events; there is no "more than N people in a zone" rule yet.
+- The superadmin cannot reset a customer's owner password from the UI yet.
+- Webhook deliveries are processed by a loop inside the API process; fine for one VPS, move to a separate worker if the API is ever scaled out (the row lease already prevents double sends).
+- Retention counts events and snapshots only. The camera preview picture is kept until replaced.
+
 ## Phase 2 limits (known)
 - The YOLO detector and ByteTrack are NOT covered by automated tests and were not run in development (no torch in the dev sandbox, and the Mac mini was not available). Run `aia-edge probe` and a short supervised `aia-edge run` on the Mac mini before trusting counts, and benchmark cameras per Mac mini there.
 - One YOLO model instance per camera (tracker state is per instance), which costs memory; a shared batched model is a later optimisation.

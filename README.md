@@ -4,13 +4,16 @@ CCTV AI analytics for any RTSP/ONVIF camera. AI runs on a local Mac mini; the cu
 
 | Folder | What |
 |---|---|
-| `api/` | FastAPI + PostgreSQL (row-level security per tenant). Phase 1 done. |
+| `api/` | FastAPI + PostgreSQL (row-level security per tenant), rules, signed webhooks. |
 | `edge/` | Mac mini agent: RTSP, detection, counting, heatmap, outbox (phase 2). |
-| `web/` | Customer portal and superadmin panel (phase 3). |
+| `web/` | Customer portal and superadmin panel (React). |
 | `deploy/` | Docker Compose (Caddy, API, Postgres) for the VPS. |
 | `docs/` | Architecture and decisions. |
 
-## Run the API tests
+## Run the tests
+Edge: `pip install -e "edge[dev]" && cd edge && pytest`. Web: `cd web && npm ci && npm test`, and browser tests with `web/e2e/run.sh` (see `web/README.md`).
+
+### API tests
 Needs a Postgres reachable by a superuser (the tests create a separate non-superuser role so RLS is truly enforced):
 ```
 pip install -e "api[dev]"

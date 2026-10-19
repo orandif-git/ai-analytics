@@ -31,7 +31,7 @@ services:
       - media:/data/media
 
   caddy:
-    image: caddy:2
+    build: ../web
     restart: unless-stopped
     depends_on: [api]
     ports:
