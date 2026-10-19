@@ -2,7 +2,7 @@ import json
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field, HttpUrl
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ from app.security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["superadmin"])
 
-TENANT_COLS = "id, name, is_active, retention_days, webhook_url, created_at"
+TENANT_COLS = "id, name, is_active, retention_days, created_at"
 
 
 class TenantCreate(BaseModel):
@@ -26,7 +26,6 @@ class TenantPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     is_active: bool | None = None
     retention_days: int | None = Field(default=None, ge=1, le=365)
-    webhook_url: HttpUrl | None = None
 
 
 @router.post("/tenants", status_code=status.HTTP_201_CREATED)
@@ -55,7 +54,12 @@ def create_tenant(
 
 @router.get("/tenants")
 def list_tenants(s: Session = Depends(superadmin_db)):
-    rows = s.execute(text(f"SELECT {TENANT_COLS} FROM tenants ORDER BY created_at")).mappings().all()
+    rows = s.execute(text(
+        f"SELECT {TENANT_COLS}, "
+        "(SELECT count(*) FROM cameras c WHERE c.tenant_id = tenants.id) AS cameras, "
+        "(SELECT count(*) FROM users u WHERE u.tenant_id = tenants.id) AS users "
+        "FROM tenants ORDER BY created_at"
+    )).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -67,8 +71,6 @@ def patch_tenant(
     s: Session = Depends(superadmin_db),
 ):
     changes = body.model_dump(exclude_unset=True)
-    if "webhook_url" in changes and changes["webhook_url"] is not None:
-        changes["webhook_url"] = str(changes["webhook_url"])
     if not changes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
     # Column names come from the fixed pydantic model above, never from user input.

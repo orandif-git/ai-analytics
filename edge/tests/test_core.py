@@ -80,3 +80,33 @@ def test_outbox_survives_reopen_and_is_bounded(tmp_path):
     assert [e["n"] for _, e in rows] == [2, 3, 4]                     # oldest dropped
     o2.delete([i for i, _ in rows])
     assert o2.size() == 0
+
+
+SQUARE = {"id": "queue", "polygon": [[0.4, 0.4], [0.6, 0.4], [0.6, 0.6], [0.4, 0.6]], "dwell_s": 10}
+
+
+def kinds(emits):
+    return [(e.kind, e.data.get("zone_id")) for e in emits if e.kind.startswith("zone_")]
+
+
+def test_zone_enter_dwell_once_and_exit():
+    a = CameraAnalytics({"zones": [SQUARE]})
+    assert kinds(a.update([person(1, .1, .9)], now=0)) == []                     # outside
+    assert kinds(a.update([person(1, .5, .5)], now=1)) == [("zone_enter", "queue")]
+    assert kinds(a.update([person(1, .5, .5)], now=5)) == []                     # inside, below threshold
+    dwell = a.update([person(1, .5, .5)], now=12)                                # 11 s inside
+    assert kinds(dwell) == [("zone_dwell", "queue")] and dwell[-1].snapshot is True or any(e.snapshot for e in dwell)
+    assert kinds(a.update([person(1, .5, .5)], now=30)) == []                    # dwell fires once per visit
+    out = [e for e in a.update([person(1, .9, .9)], now=31) if e.kind == "zone_exit"]
+    assert out[0].data == {"zone_id": "queue", "seconds": 30.0}
+    # a new visit can dwell again
+    a.update([person(1, .5, .5)], now=40)
+    assert kinds(a.update([person(1, .5, .5)], now=52)) == [("zone_dwell", "queue")]
+
+
+def test_zone_state_is_cleaned_when_track_disappears():
+    a = CameraAnalytics({"zones": [SQUARE]})
+    a.update([person(1, .5, .5)], now=0)
+    a.update([], now=1)
+    assert a._in_zone == {} and a._dwell_fired == set()
+    assert kinds(a.update([person(1, .5, .5)], now=2)) == [("zone_enter", "queue")]

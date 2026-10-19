@@ -118,3 +118,25 @@ def test_sync_cameras_starts_and_stops_workers(tmp_path):
     state["cams"] = []
     agent.sync_cameras()
     assert agent.workers == {} and w.stop_event.is_set()
+
+
+def test_snapshot_request_is_answered_with_a_jpeg_and_failures_are_reported(tmp_path):
+    video = tmp_path / "v.mp4"
+    make_video(video, list(range(100, 160, 4)))
+    answers = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"requests": [
+                {"id": "r-ok", "camera_id": "c", "rtsp_url": str(video)},
+                {"id": "r-bad", "camera_id": "c", "rtsp_url": "/no/such/file.mp4"},
+            ]})
+        answers[req.url.path.rsplit("/", 1)[1]] = json.loads(req.content)
+        return httpx.Response(204)
+
+    client = ApiClient("http://api", "t", transport=httpx.MockTransport(handler))
+    agent = Agent(cfg(tmp_path), client, Outbox(str(tmp_path / "o.db")), SquareDetector)
+    assert agent.answer_snapshot_requests() == 2
+    jpeg = base64.b64decode(answers["r-ok"]["snapshot_b64"])
+    assert jpeg.startswith(b"\xff\xd8\xff")
+    assert "cannot open stream" in answers["r-bad"]["error"] and "snapshot_b64" not in answers["r-bad"]

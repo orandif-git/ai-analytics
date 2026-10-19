@@ -12,13 +12,15 @@ from app.media import media_path
 
 router = APIRouter(tags=["events"])
 
+EventKind = Literal["detection", "count", "line_cross", "heatmap", "zone_enter", "zone_exit", "zone_dwell"]
+
 COLS = "id, camera_id, ts, kind, label, track_id, confidence, data, (snapshot_path IS NOT NULL) AS has_snapshot"
 
 
 @router.get("/events")
 def list_events(
     camera_id: UUID | None = None,
-    kind: Literal["detection", "count", "line_cross", "heatmap"] | None = None,
+    kind: EventKind | None = None,
     since: datetime | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     s: Session = Depends(tenant_db),

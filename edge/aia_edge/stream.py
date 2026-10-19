@@ -39,3 +39,16 @@ def frames(url: str, target_fps: float) -> Iterator[np.ndarray]:
             i += 1
     finally:
         cap.release()
+
+
+def grab_frame(url: str) -> np.ndarray:
+    """Open the stream, read one frame, close. Used for portal preview requests."""
+    cap = open_capture(url)
+    try:
+        for _ in range(5):  # first frames of some cameras are grey/partial
+            ok, frame = cap.read()
+        if not ok or frame is None:
+            raise StreamError("stream opened but no frame arrived")
+        return frame
+    finally:
+        cap.release()

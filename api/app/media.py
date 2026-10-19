@@ -10,7 +10,7 @@ from app.config import get_settings
 MAX_SNAPSHOT_BYTES = 1_000_000
 
 
-def save_snapshot(tenant_id: UUID, camera_id: UUID, ts: datetime, b64: str) -> str:
+def save_snapshot(tenant_id: UUID, camera_id: UUID, ts: datetime, b64: str, sub: str | None = None) -> str:
     """Store a JPEG under media_dir and return its path relative to media_dir."""
     try:
         data = base64.b64decode(b64, validate=True)
@@ -20,7 +20,7 @@ def save_snapshot(tenant_id: UUID, camera_id: UUID, ts: datetime, b64: str) -> s
         raise ValueError("snapshot too large")
     if not data.startswith(b"\xff\xd8\xff"):
         raise ValueError("snapshot is not a JPEG")
-    rel = Path(str(tenant_id)) / str(camera_id) / ts.strftime("%Y%m%d") / f"{uuid4().hex}.jpg"
+    rel = Path(str(tenant_id)) / str(camera_id) / (sub or ts.strftime("%Y%m%d")) / f"{uuid4().hex}.jpg"
     full = Path(get_settings().media_dir) / rel
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_bytes(data)

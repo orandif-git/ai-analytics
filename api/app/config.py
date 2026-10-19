@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     default_retention_days: int = 7
     media_dir: str = "./media"
     purge_interval_seconds: int = 3600
+    webhook_interval_seconds: int = 5
+    # Tests only: allow webhooks to private/loopback addresses and plain http.
+    webhook_allow_private: bool = False
     bootstrap_superadmin_email: str | None = None
     bootstrap_superadmin_password: str | None = None
 

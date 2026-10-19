@@ -3,11 +3,13 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.deps import Principal, require_tenant_admin, tenant_db
+from app.media import media_path
 from app.security import encrypt_secret
 from app.vendors import build_rtsp_url
 
@@ -15,7 +17,8 @@ router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 Vendor = Literal["dahua", "hikvision", "axis", "uniview", "generic"]
 # Never return password_enc.
-PUBLIC_COLS = "id, site_id, name, vendor, host, port, channel, stream, path, username, enabled, analytics, created_at"
+PUBLIC_COLS = ("id, site_id, name, vendor, host, port, channel, stream, path, username, enabled, analytics, created_at, "
+               "status, status_at, fps, (reference_snapshot_path IS NOT NULL) AS has_preview, reference_snapshot_at")
 
 
 class CameraIn(BaseModel):
@@ -70,6 +73,7 @@ Point = Annotated[list[float], Field(min_length=2, max_length=2)]
 
 class Line(BaseModel):
     id: str = Field(min_length=1, max_length=50)
+    name: str | None = Field(default=None, max_length=100)
     p1: Point
     p2: Point
     # Which side counts as "in": the side the left-hand normal of p1->p2 points to when "left".
@@ -78,6 +82,9 @@ class Line(BaseModel):
 
 class Zone(BaseModel):
     id: str = Field(min_length=1, max_length=50)
+    name: str | None = Field(default=None, max_length=100)
+    # Seconds inside before a zone_dwell event fires.
+    dwell_s: float = Field(default=30, ge=1, le=86400)
     polygon: list[Point] = Field(min_length=3, max_length=50)
 
 
@@ -99,3 +106,38 @@ def set_analytics(camera_id: UUID, body: Analytics, p: Principal = Depends(requi
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
     return dict(row)
+
+
+@router.post("/{camera_id}/snapshot-request", status_code=status.HTTP_202_ACCEPTED)
+def request_preview(camera_id: UUID, p: Principal = Depends(require_tenant_admin), s: Session = Depends(tenant_db)):
+    """Ask the edge machine (the only one that can reach the camera) for a fresh picture."""
+    if s.execute(text("SELECT 1 FROM cameras WHERE id = :i"), {"i": camera_id}).first() is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
+    row = s.execute(
+        text("INSERT INTO snapshot_requests (tenant_id, camera_id) VALUES (:t, :c) RETURNING id"),
+        {"t": p.tenant_id, "c": camera_id},
+    ).one()
+    return {"request_id": row.id}
+
+
+@router.get("/snapshot-requests/{request_id}")
+def preview_status(request_id: UUID, s: Session = Depends(tenant_db)):
+    row = s.execute(
+        text("SELECT status, error, (status IN ('pending', 'claimed') AND created_at < now() - interval '2 minutes') AS expired "
+             "FROM snapshot_requests WHERE id = :i"),
+        {"i": request_id},
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
+    if row["expired"]:
+        return {"status": "error", "error": "No edge device answered. Is the agent running?"}
+    return {"status": row["status"], "error": row["error"]}
+
+
+@router.get("/{camera_id}/preview.jpg")
+def preview_image(camera_id: UUID, s: Session = Depends(tenant_db)):
+    rel = s.execute(text("SELECT reference_snapshot_path FROM cameras WHERE id = :i"), {"i": camera_id}).scalar()
+    path = media_path(rel) if rel else None
+    if path is None or not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No preview yet")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=0, must-revalidate"})

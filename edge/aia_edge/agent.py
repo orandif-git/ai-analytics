@@ -116,6 +116,17 @@ class Agent:
             self.outbox.delete([i for i, _ in rows])
             sent += res.get("accepted", 0)
 
+    def answer_snapshot_requests(self) -> int:
+        """Portal 'show me this camera' requests. The VPS can't reach cameras, only this machine can."""
+        done = 0
+        for req in self.client.pending_requests():
+            try:
+                self.client.answer_request(req["id"], snapshot_b64=jpeg_b64(stream.grab_frame(req["rtsp_url"])))
+            except stream.StreamError as ex:
+                self.client.answer_request(req["id"], error=str(ex))
+            done += 1
+        return done
+
     def _loop(self, fn: Callable[[], object], every: float, name: str) -> None:
         while not self._stop.is_set():
             try:
@@ -131,6 +142,7 @@ class Agent:
             threading.Thread(target=self._loop, args=(self.sync_cameras, self.cfg.config_refresh_s, "config"), daemon=True),
             threading.Thread(target=self._loop, args=(self.send_heartbeat, self.cfg.heartbeat_s, "heartbeat"), daemon=True),
             threading.Thread(target=self._loop, args=(self.flush_outbox, self.cfg.flush_s, "flush"), daemon=True),
+            threading.Thread(target=self._loop, args=(self.answer_snapshot_requests, 3, "snapshot-requests"), daemon=True),
         ]
         for t in threads:
             t.start()

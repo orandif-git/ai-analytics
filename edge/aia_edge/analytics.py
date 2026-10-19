@@ -2,7 +2,7 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from aia_edge.geometry import crossing
+from aia_edge.geometry import crossing, point_in_polygon
 from aia_edge.types import Track
 
 
@@ -22,10 +22,14 @@ class CameraAnalytics:
                  snapshot_cooldown_s: float = 10, summary_interval_s: float = 60):
         a = analytics or {}
         self.lines = a.get("lines", [])
+        self.zones = a.get("zones", [])
         self.grid = grid
         self.snapshot_cooldown_s = snapshot_cooldown_s
         self.summary_interval_s = summary_interval_s
         self._last_foot: dict[int, tuple[float, float]] = {}
+        # (track_id, zone_id) -> time the track entered the zone, and which pairs already fired a dwell event
+        self._in_zone: dict[tuple[int, str], float] = {}
+        self._dwell_fired: set[tuple[int, str]] = set()
         self._seen: set[tuple[str, int]] = set()
         self._last_snapshot_at = float("-inf")
         self._window_start: float | None = None
@@ -64,6 +68,9 @@ class CameraAnalytics:
                                     {"line_id": line["id"], "direction": "in" if direction == entering_dir else "out"}))
             self._last_foot[t.id] = foot
 
+            for zone in self.zones:
+                out += self._zone_events(zone, t, foot, now)
+
             if t.label == "person":
                 gx = min(int(foot[0] * self.grid[0]), self.grid[0] - 1)
                 gy = min(int(foot[1] * self.grid[1]), self.grid[1] - 1)
@@ -74,10 +81,33 @@ class CameraAnalytics:
         # Forget tracks that disappeared so the dicts don't grow forever.
         for tid in set(self._last_foot) - live_ids:
             del self._last_foot[tid]
+        for key in [k for k in self._in_zone if k[0] not in live_ids]:
+            del self._in_zone[key]
+        self._dwell_fired = {k for k in self._dwell_fired if k[0] in live_ids}
 
         if now - self._window_start >= self.summary_interval_s:
             out += self.flush()
             self._window_start = now
+        return out
+
+    def _zone_events(self, zone: dict, t: Track, foot: tuple[float, float], now: float) -> list[Emit]:
+        zid = zone["id"]
+        key = (t.id, zid)
+        inside = point_in_polygon(foot, [tuple(p) for p in zone["polygon"]])
+        out: list[Emit] = []
+        if inside and key not in self._in_zone:
+            self._in_zone[key] = now
+            out.append(Emit("zone_enter", t.label, t.id, t.conf, {"zone_id": zid}))
+        elif not inside and key in self._in_zone:
+            seconds = now - self._in_zone.pop(key)
+            self._dwell_fired.discard(key)
+            out.append(Emit("zone_exit", t.label, t.id, t.conf, {"zone_id": zid, "seconds": round(seconds, 1)}))
+        if inside and key not in self._dwell_fired:
+            threshold = zone.get("dwell_s", 30)
+            if now - self._in_zone[key] >= threshold:
+                self._dwell_fired.add(key)  # once per visit; leaving and re-entering starts a new visit
+                out.append(Emit("zone_dwell", t.label, t.id, t.conf,
+                                {"zone_id": zid, "seconds": round(now - self._in_zone[key], 1)}, snapshot=True))
         return out
 
     def flush(self) -> list[Emit]:

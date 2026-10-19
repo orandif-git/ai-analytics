@@ -42,4 +42,8 @@ def login(body: LoginIn):
 
 @router.get("/me")
 def me(p: Principal = Depends(get_principal)):
-    return {"user_id": p.user_id, "role": p.role, "tenant_id": p.tenant_id}
+    with rls_session(tenant_id=p.tenant_id, superadmin=p.is_superadmin) as s:
+        u = s.execute(text("SELECT email FROM users WHERE id = :i"), {"i": p.user_id}).first()
+        t = s.execute(text("SELECT name, retention_days FROM tenants WHERE id = :t"), {"t": p.tenant_id}).first() if p.tenant_id else None
+    return {"user_id": p.user_id, "email": u.email if u else None, "role": p.role, "tenant_id": p.tenant_id,
+            "tenant": {"name": t.name, "retention_days": t.retention_days} if t else None}
